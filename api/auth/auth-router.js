@@ -1,7 +1,26 @@
 const router = require('express').Router();
+const middleware = require('./middleware')
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken')
+const { jwtSecret } = require('../../config/secrets')
+const { isValid } = require("./auth-service");
+const Users = require('../auth/auth-model')
 
-router.post('/register', (req, res) => {
-  res.end('implement register, please!');
+
+router.post('/register', middleware.checkPayload, middleware.checkUsernameUnique, async (req, res) => {
+  try {
+    const hash = bcrypt.hashSync(req.body.password, 10)
+
+    const newUser = await Users.createUser({
+      username: req.body.username,
+      password: hash
+    })
+    res.status(201).json(newUser)
+  } catch (error) {
+    res.status(500).json({
+      message: error.message
+    })
+  }
   /*
     IMPLEMENT
     You are welcome to build additional middlewares to help with the endpoint's functionality.
@@ -28,8 +47,25 @@ router.post('/register', (req, res) => {
   */
 });
 
-router.post('/login', (req, res) => {
-  res.end('implement login, please!');
+router.post('/login', middleware.checkPayload, async (req, res) => {
+  const { username, password } = req.body
+  if (isValid(req.body)) {
+    Users.findBy({ username: username })
+      .then(([user]) => {
+        if (user && bcrypt.compareSync(password, user.password)) {
+          const token = makeToken(user)
+
+          res.status(200).json({
+            message: 'Welcome to the API, ' + user.username, token
+          })
+        } else {
+          res.status(401).json({ message: 'Invalid credentials'})
+        }
+      })
+      .catch (error => {
+        res.status(500).json({message: error.message})
+      })
+  }
   /*
     IMPLEMENT
     You are welcome to build additional middlewares to help with the endpoint's functionality.
@@ -54,5 +90,18 @@ router.post('/login', (req, res) => {
       the response body should include a string exactly as follows: "invalid credentials".
   */
 });
+
+function makeToken(user) {
+  // we use a lib called jsonwebtoken
+  const payload = {
+    subject: user.id,
+    username: user.username,
+    role: user.role,
+  }
+  const options = {
+    expiresIn: '900s',
+  }
+  return jwt.sign(payload, jwtSecret, options)
+}
 
 module.exports = router;
